@@ -1,0 +1,451 @@
+import { LightningElement, api, track, wire } from 'lwc';
+import getBookmarkedWebtools from '@salesforce/apex/x7sWebToolListController.getBookmarkedWebtools';
+import updateListRecord from "@salesforce/apex/x7sWebToolListController.updateListRecord"; 
+import WebToolLogo from '@salesforce/resourceUrl/NCPWebtoollogo';
+import WebToolReferenceGuide from '@salesforce/resourceUrl/WebToolReferenceGuideIcon';
+import ICON_PATH from '@salesforce/resourceUrl/ncp_icons';
+import { NavigationMixin } from 'lightning/navigation';
+import { getRecord } from 'lightning/uiRecordApi';
+import USER_ACCOUNT_NAME from '@salesforce/schema/User.User_Account_name__c';
+import CONTACT_ID from '@salesforce/schema/User.Contact.Id';
+import uId from '@salesforce/user/Id';
+//Code Start for the message pop up
+import MY_CUSTOM_LABEL from '@salesforce/label/c.EmployeeMessagePopUp';
+import MY_RESOURCE from '@salesforce/resourceUrl/MessagePopUpWarning';	
+import Do_Not_Show_Msg_Popup from '@salesforce/schema/User.Do_Not_Show_Msg_Popup__c';
+import { updateRecord } from 'lightning/uiRecordApi';
+import USER_TYPE from '@salesforce/schema/User.UserType'; 
+import Agreed_to_Terms_and_Conditions from '@salesforce/schema/User.Agreed_to_Terms_and_Conditions__c';
+//Code end for the message pop up
+//Import for Drag and Drop custom label
+import DragAndDropPortalHome from '@salesforce/label/c.DragAndDropPortalHome';
+
+
+export default class NCPBookmarkedWebToolList extends NavigationMixin(LightningElement) {
+//Code Start for the message pop up
+    @api messageSubheading1 = 'Trace ';
+    @api messageSubheading2 = 'Web Tool Detail Page';
+    @api messageSubheading3 = 'Web Tools University';
+    @api messageCheckboxLabel = 'Do not show this message again'
+    @api okButtonText = 'OK';
+    @track doNotShowPopup=false;
+    @track agreedTNC=false;
+    @track isloginfirst=false;
+    isEmployee=false;
+    @track isModalOpen1 =false;
+    onMessagePopUp = false;
+    customLabel = MY_CUSTOM_LABEL;
+    warningIcon = MY_RESOURCE;
+    usertype;
+    @api termsAndConditionsText;
+    messagePopupOk=true; 
+    isLoading = false;
+    userId = uId;
+    contactId;
+    userCompany;
+    //Code Start for the message pop up
+
+    webTools = [];
+    isLoading = true;
+    WebToolReferenceGuideIcon = WebToolReferenceGuide;
+    launchIcon = ICON_PATH + '/ncp_icons/PNG/icon-launch.png';
+    lockIcon = ICON_PATH + '/ncp_icons/PNG/icon-lock.png';
+    discoverText = 'Discover web tools to add to your bookmarks';
+    toastLabel = 'WebTool Bookmarks';
+    userId = uId;
+    contactId;
+    userCompany;
+    //selectedFilter = 'date';
+    //displayFilter = true;
+    sessionFlag;
+
+
+    // get options() {
+    //     return [
+    //         { label: 'Name A to Z', value: 'name' },
+    //         { label: 'Date Added', value: 'date' }
+    //     ];
+    // }
+    label = {
+        DragAndDropPortalHome
+    };
+
+    @wire(getRecord, { recordId: '$userId', fields: [ USER_ACCOUNT_NAME, CONTACT_ID, USER_TYPE,
+        Do_Not_Show_Msg_Popup, Agreed_to_Terms_and_Conditions ]})
+    wiredUser({data, error}) {
+        if (data) {
+            this.userCompany = data.fields?.User_Account_name__c?.value;
+            this.contactId = data.fields?.Contact?.value?.fields?.Id?.value;
+           //Code Start for the message pop up
+            this.agreedTNC=data.fields?.Agreed_to_Terms_and_Conditions__c?.value;
+            this.usertype = data.fields?.UserType?.value;
+            this.doNotShowPopup = data.fields?.Do_Not_Show_Msg_Popup__c?.value;
+            this.showpopup();
+           //Code Start for the message pop up
+        if(this.doNotShowPopup)
+        this.isModalOpen1=false;
+        } else if (error) {
+            console.log("Profile Error: ", error);
+        }
+    }
+
+    get bookmarkIcon() {
+        return ICON_PATH + '/ncp_icons/SVG/icon-bookmark.svg';
+    }
+
+    get activeBookmarkIcon() {
+        return ICON_PATH + '/ncp_icons/SVG/icon-bookmark-active.svg';
+    }
+
+    get addIcon() {
+        return ICON_PATH + '/ncp_icons/PNG/icon-wt-add.png';
+    }
+
+    get chevronIcon() {
+        return ICON_PATH + '/ncp_icons/SVG/icon-chevron-right-black.svg';
+    }
+
+    get showPopUpMessage() {
+        return this.isModalOpen1;
+    }
+
+    connectedCallback() {
+        //Added 6/11/24 Tayari Rock drag-drop functionallity 
+        this.template.addEventListener('dragstart', this.handleDragStart.bind(this));
+        this.template.addEventListener('dragover', this.handleDragOver.bind(this));
+        this.template.addEventListener('drop', this.handleDrop.bind(this));
+        this.getList();
+        //Code Start for the message pop up
+        this.showpopup();
+        //Code end for the message pop up
+    }
+
+    // Code Start for Drag-and-Drop
+
+    handleDragStart(event) {
+        console.log('Drag start');
+        // Store the id of the item being dragged
+        event.dataTransfer.setData('text/plain', event.target.dataset.id);
+    }
+    
+    handleDragOver(event) {
+        console.log('Drag over');
+        // Prevent the default behavior to allow dropping
+        event.preventDefault();
+    }
+    
+    handleDrop(event) {
+        console.log('Drop');
+        // Prevent the default behavior
+        event.preventDefault();
+    
+        // Get the id of the item being dragged
+        let dragId = event.dataTransfer.getData('text/plain');
+    
+        // Get the id of the drop target
+        let dropId = event.currentTarget.dataset.id;
+
+        console.log('dragId:', dragId, 'dropId:', dropId); 
+    
+        // Move the item
+        this.moveItem(dragId, dropId);
+    }
+    
+    moveItem(dragId, dropId) {
+        console.log('moveItem');
+        // Find the items
+        let dragItem = this.webTools.find(item => item.Id === dragId);
+        let dropItem = this.webTools.find(item => item.Id === dropId);
+    
+        // Find their indices
+        let dragIndex = this.webTools.indexOf(dragItem);
+        let dropIndex = this.webTools.indexOf(dropItem);
+    
+        // New webTools array
+        let newWebTools = [...this.webTools];
+    
+        // Remove
+        newWebTools.splice(dragIndex, 1);
+    
+        // Insert
+        newWebTools.splice(dropIndex, 0, dragItem);
+    
+        // Update
+        this.webTools = newWebTools;
+    
+        // Store  localStorage
+        localStorage.setItem('webTools', JSON.stringify(newWebTools));
+    }
+
+    //Code Start for the message pop up
+    showpopup(){
+        this.sessionFlag = window.sessionStorage.getItem(
+           'donotShowFlag'
+          );
+          console.log(window.sessionStorage.getItem(
+            'donotShowFlag'
+          )) 
+        this.isModalOpen1=false;
+        setTimeout(() => {
+            // Code to execute after the timeout
+            console.log('Timeout occurred after 5 seconds');
+       
+  
+            // Code to execute after the timeout
+            console.log('Timeout occurred after 5 seconds');
+        
+        if(this.usertype != "PowerCustomerSuccess"){
+            this.isEmployee = true;
+         console.log('coming into if',this.isEmployee);
+         }
+         else{
+         this.isEmployee = false;
+           console.log('coming into else',this.isEmployee);
+          }
+    
+          console.log('do not show off status',this.doNotShowPopup);
+       if(!this.doNotShowPopup &&  this.isEmployee && this.sessionFlag == null ){
+          this.isModalOpen1=true;
+          console.log('coming into',this.isModalOpen1);
+       }
+     }, 600);
+    }
+    handleClickOk() {
+        window.sessionStorage.setItem(
+            'donotShowFlag', false
+          );
+         console.log(window.sessionStorage.getItem(
+            'donotShowFlag'
+          )) 
+        this.messagePopupOk =false;
+        this.isModalOpen1 = false;
+        this.onMessagePopUp = false;
+        const fields = {};
+        fields['Id'] = this.userId; 
+        fields['Do_Not_Show_Msg_Popup__c'] = this.doNotShowPopup; 
+
+        console.log('record updated successful user id'+this.userId);
+        console.log('record updated successful showp[opup'+this.doNotShowPopup);
+
+        const recordInput = { fields };
+        
+        updateRecord(recordInput) .then(() => {
+              console.log('record updated successful');     
+        }) .catch(error => {
+            console.log('error happening');
+              /*  this.dispatchEvent(
+                        new ShowToastEvent({
+                                title: 'Error updating record',
+                                message: error.body.message,
+                                variant: 'error'
+                        })
+                );*/
+        });
+        this.isModalOpen1 = false;
+    }
+    handleChangeMessagePopup(e) {
+        let tempCheck=e.target.checked;
+     this.doNotShowPopup=tempCheck;
+       
+    }
+    //Code end for the message pop up
+    handleChange(event) {
+        //this.selectedFilter = event.detail.value;
+        this.getList();
+    }
+
+    getList() {
+        getBookmarkedWebtools({
+        })
+            .then(data => {
+                // Check if data is not null or undefined
+                if (!data) {
+                    console.error('data is null or undefined');
+                    return;
+                }
+    
+                // Get the webTools item from localStorage
+                let storedWebTools = localStorage.getItem('webTools');
+                if (storedWebTools) {
+                    storedWebTools = JSON.parse(storedWebTools);
+                } else {
+                    storedWebTools = [];
+                }
+    
+                // Prepare the new list based on the data from getBookmarkedWebtools
+                const newList = data.map(wt => {
+                    if (!wt) {
+                        console.error('wt is null or undefined');
+                        return null;
+                    }
+                    wt.selected = true;
+                    wt.displayWebToolUrl = true;
+					// wt.detailUrl = `/s/web-tool/${wt.Id}/${wt.Web_Tool__r.Name.split(" ").join('-').toLowerCase()}`;
+                    wt.webToolLogo = `${WebToolLogo}/Icons/${wt.Web_Tool__r.Web_Tool_Logo_Label__c}.png`;
+                    wt.hasReferenceGuide = wt.Web_Tool__r.Has_Reference_guide__c;
+                    wt.name = wt.Web_Tool__r.Name;
+                    return wt;
+                }).filter(item => item !== null); // Filter out null items
+    
+                //  Map for quick lookup of newList by name
+                const newListMap = new Map(newList.map(item => [item.name, item]));
+    
+                //  Set for quick lookup of storedWebTools by name
+                const storedWebToolsSet = new Set(storedWebTools.map(item => item.name));
+    
+                // Replace items in storedWebTools with their corresponding items from newList if they exist, and filter out removed bookmarks
+                const updatedWebTools = storedWebTools.map(item => newListMap.get(item.name) || item).filter(item => newListMap.has(item.name));
+    
+                // Add new items from newList that are NOT in storedWebTools 
+                const newWebTools = newList.filter(item => !storedWebToolsSet.has(item.name));
+    
+                // Update this.webTools and localStorage with the updated web tools (Merge of sorts)
+                this.webTools = [...updatedWebTools, ...newWebTools];
+                //localStorage.setItem('webTools', JSON.stringify(this.webTools));
+            })
+            .catch(error => {
+                console.error(error);
+            })
+    }
+
+    requestDetailPage(event) {
+        let recordId = event.currentTarget.dataset.id;
+        const webToolName = event.currentTarget.dataset.name;
+
+        try {
+            this.sendgoogletracking({
+              eventAction: `Navigate To ${webToolName} Detail Page`,
+              eventLabel: 'Bookmarked Web Tools Click'
+            })
+        } catch (e) {
+            console.error(e);
+        }
+
+       /* this[NavigationMixin.GenerateUrl]({
+            type: 'standard__webPage',
+            attributes: {
+                url:   '/customerportal/' + recordId
+            }
+        }).then(generatedUrl => {
+            window.open(generatedUrl,"_self");
+        });*/
+
+         /*Santosh code for dynamic webtool url fetch start*/
+       
+         this[NavigationMixin.GenerateUrl]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: recordId,
+                objectApiName: 'Web_Tool__c',
+                actionName: 'view'
+            }
+        }).then(generatedUrl => {
+            window.open(generatedUrl,"_self");
+        });
+    }
+
+    handleSavedClick(event) {
+        let itemId = event.currentTarget.dataset.id;
+        let itemName = event.currentTarget.dataset.name;
+
+        try {
+            this.sendgoogletracking({
+              eventAction: `Remove Bookmark from ${itemName} Web Tool`,
+              eventLabel: `Bookmarked Web Tools Click Remove Bookmark from ${itemName}`
+            })
+        } catch (e) {
+            console.error(e);
+        }
+
+        this.webTools = this.webTools.map(wt => {
+            if (wt.Id === itemId) {
+                wt.selected = false;
+            }
+            return wt;
+        });
+
+        updateListRecord({recordId: itemId})
+            .then(result => {
+                this.getList();
+                if (result) {
+                    setTimeout(() => this.showToast(`"${itemName}" was removed from your bookmarks.`), 300);
+                }
+            }).catch(error => console.error(error));
+    }
+
+    navigateToAllWebTools() {
+
+        try {
+            this.sendgoogletracking({
+              eventAction: `Navigate To View All Web Tools`,
+              eventLabel: 'Bookmarked Web Tools Click View All'
+            })
+        } catch (e) {
+            console.error(e);
+        }
+
+        const pageReference = {
+            type: 'standard__webPage',
+            attributes: {
+              url: '/all-web-tools'
+            }
+        };
+        
+        this[NavigationMixin.Navigate](pageReference);
+    }
+
+    showToast(msg) {
+        this.template.querySelector('c-n-c-p_-custom-toast-notification').showToast('success', msg, 'utility:success', 3000);
+    }
+
+    requestLaunchURL(event){
+        const url = event.currentTarget.dataset.url;
+        const webToolName = event.currentTarget.dataset.name;
+
+        try {
+            this.sendgoogletracking({
+              eventAction: `Launch ${webToolName} Web Tool`,
+              eventLabel: 'Bookmarked Web Tools Click Launch'
+            })
+        } catch (e) {
+            console.error(e);
+        }
+
+        this[NavigationMixin.GenerateUrl]({
+            type: 'standard__webPage',
+            attributes: {
+                url
+            }
+        }).then(generatedUrl => {
+            window.open(generatedUrl,"_blank");
+        });
+    }
+
+   /**
+   * Method to send google events via window.postMessage
+   *  @param {Object} message - Object to send to google analytics
+   */
+
+    sendgoogletracking(message) {
+        try {
+            const { eventAction, eventLabel } = message;
+            const host = 'https://' + location.hostname;
+            window.postMessage(
+            {
+                event: 'SalesForceUser',
+                eventAction: eventAction,
+                eventLabel: eventLabel,
+                eventValue: null,
+                dimensions: {
+                    CompanyName: this.userCompany ? this.userCompany : 'Company name not found (' + this.contactId + ')',
+                    SalesForceID: this.contactId ? this.contactId : "Not a Community Contact (bnsf user)"
+                },
+                messagetype: 'com.bnsf.googleanalytics'
+            },
+            host
+            );
+        } catch (e) {
+            console.error(e);
+        }
+    }
+}
